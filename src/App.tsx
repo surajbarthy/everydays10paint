@@ -19,9 +19,9 @@ const TIME_LIMIT = 10; // 10 seconds
 const BRUSH_SIZES = [10, 50, 100]; // Three brush sizes
 
 function App() {
-  const [color, setColor] = useState('#000000');
+  const [color, setColor] = useState('#222222'); // Default to dark grey/black from palette
   const [tool, setTool] = useState<Tool>('brush');
-  const [brushSize, setBrushSize] = useState(100);
+  const [brushSize, setBrushSize] = useState(50); // Default to middle brush size
   const [timeLeft, setTimeLeft] = useState(TIME_LIMIT);
   const [isLocked, setIsLocked] = useState(false);
   const [hasDrawing, setHasDrawing] = useState(false);
@@ -365,7 +365,7 @@ function App() {
     setHasDrawing(false);
     setIsTimerRunning(false);
     setTool('brush');
-    setColor('#000000');
+    setColor('#222222'); // Reset to dark grey/black from palette
   }
 
   return (

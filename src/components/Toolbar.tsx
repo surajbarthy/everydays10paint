@@ -108,7 +108,7 @@ export default function Toolbar({
           <button
             className="tool-button undo-button"
             onClick={onUndo}
-            disabled={isLocked}
+            disabled={isLocked || timeLeft <= 0 || !hasDrawing}
           >
             Undo
           </button>
@@ -130,23 +130,24 @@ export default function Toolbar({
 
       <div className="toolbar-section">
         <div className="turn-controls">
-          <button
-            className="action-button done-button"
-            onClick={onDone}
-            disabled={isLocked || !hasDrawing}
-          >
-            Done
-          </button>
-          {isLocked && (
-            <div className="locked-message">
-              <p>Locked. Hand to the next person.</p>
+          {!isLocked ? (
+            <button
+              className="action-button done-button"
+              onClick={onDone}
+              disabled={!hasDrawing}
+            >
+              Done
+            </button>
+          ) : (
+            <>
+              <p className="locked-text">Locked. Hand to the next person.</p>
               <button
                 className="action-button next-button"
                 onClick={onNextPerson}
               >
                 Next Person
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>
