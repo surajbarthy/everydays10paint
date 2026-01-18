@@ -318,6 +318,44 @@
   font-size: 0.9rem;
 }
 
+.timelapse-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timelapse-button,
+.export-button {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.timelapse-button:hover:not(:disabled),
+.export-button:hover:not(:disabled) {
+  background: #45a049;
+}
+
+.timelapse-button:disabled,
+.export-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.timelapse-button {
+  background: #2196F3;
+}
+
+.timelapse-button:hover:not(:disabled) {
+  background: #0b7dda;
+}
+
 @media (max-width: 768px) {
   .app-content {
     flex-direction: column;

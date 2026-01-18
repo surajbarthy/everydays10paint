@@ -31,12 +31,15 @@ interface ToolbarProps {
   timeLeft: number;
   isLocked: boolean;
   hasDrawing: boolean;
+  isPlayingTimelapse: boolean;
   onColorChange: (color: string) => void;
   onToolChange: (tool: Tool) => void;
   onBrushSizeChange: (size: number) => void;
   onDone: () => void;
   onNextPerson: () => void;
   onUndo: () => void;
+  onPlayTimelapse: () => void;
+  onExportStrokes: () => void;
 }
 
 export default function Toolbar({
@@ -47,12 +50,15 @@ export default function Toolbar({
   timeLeft,
   isLocked,
   hasDrawing,
+  isPlayingTimelapse,
   onColorChange,
   onToolChange,
   onBrushSizeChange,
   onDone,
   onNextPerson,
   onUndo,
+  onPlayTimelapse,
+  onExportStrokes,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -148,6 +154,27 @@ export default function Toolbar({
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="toolbar-section">
+        <h3>Timelapse</h3>
+        <div className="timelapse-controls">
+          {isLocked && (
+            <button
+              className="action-button timelapse-button"
+              onClick={onPlayTimelapse}
+            >
+              {isPlayingTimelapse ? 'Stop' : 'Play Timelapse'}
+            </button>
+          )}
+          <button
+            className="action-button export-button"
+            onClick={onExportStrokes}
+            title="Export all strokes as JSON for video creation"
+          >
+            Export All Strokes
+          </button>
         </div>
       </div>
 

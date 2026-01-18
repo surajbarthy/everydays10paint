@@ -9,9 +9,10 @@ interface UseCanvasLayersProps {
   tool: Tool;
   brushSize: number;
   onDrawingStart: () => void;
+  onStrokeRecord?: (point: { x: number; y: number; timestamp: number; isFirst: boolean }) => void;
 }
 
-export function useCanvasLayers({ color, tool, brushSize, onDrawingStart }: UseCanvasLayersProps) {
+export function useCanvasLayers({ color, tool, brushSize, onDrawingStart, onStrokeRecord }: UseCanvasLayersProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeCanvasRef = useRef<HTMLCanvasElement>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -246,9 +247,19 @@ export function useCanvasLayers({ color, tool, brushSize, onDrawingStart }: UseC
     
     lastPointRef.current = { x, y };
     
+    // Record stroke point for timelapse
+    if (onStrokeRecord) {
+      onStrokeRecord({
+        x,
+        y,
+        timestamp: Date.now(),
+        isFirst: isFirstPoint,
+      });
+    }
+    
     // Update display
     renderComposite();
-  }, [color, brushSize, onDrawingStart, renderComposite]);
+  }, [color, brushSize, onDrawingStart, onStrokeRecord, renderComposite]);
 
   // Handle pointer down (start drawing)
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -332,6 +343,54 @@ export function useCanvasLayers({ color, tool, brushSize, onDrawingStart }: UseC
     return baseCanvas.toDataURL('image/png');
   }, []);
 
+  // Replay a stroke (for timelapse)
+  const replayStroke = useCallback((stroke: { color: string; brushSize: number; points: Array<{ x: number; y: number }> }) => {
+    const activeCanvas = activeCanvasRef.current;
+    if (!activeCanvas) return;
+    
+    const ctx = activeCanvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.fillStyle = stroke.color;
+    
+    for (let i = 0; i < stroke.points.length; i++) {
+      const point = stroke.points[i];
+      const prevPoint = i > 0 ? stroke.points[i - 1] : null;
+      
+      if (prevPoint) {
+        // Draw line between points
+        const dx = point.x - prevPoint.x;
+        const dy = point.y - prevPoint.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 0) {
+          const steps = Math.ceil(distance / (stroke.brushSize / 4));
+          for (let j = 0; j <= steps; j++) {
+            const t = j / steps;
+            const px = prevPoint.x + dx * t;
+            const py = prevPoint.y + dy * t;
+            ctx.fillRect(
+              px - stroke.brushSize / 2,
+              py - stroke.brushSize / 2,
+              stroke.brushSize,
+              stroke.brushSize
+            );
+          }
+        }
+      } else {
+        // First point
+        ctx.fillRect(
+          point.x - stroke.brushSize / 2,
+          point.y - stroke.brushSize / 2,
+          stroke.brushSize,
+          stroke.brushSize
+        );
+      }
+    }
+    
+    renderComposite();
+  }, [renderComposite]);
+
   return {
     baseCanvasRef,
     activeCanvasRef,
@@ -345,5 +404,7 @@ export function useCanvasLayers({ color, tool, brushSize, onDrawingStart }: UseC
     exportAsBlob,
     exportAsDataURL,
     undo,
+    replayStroke,
+    renderComposite,
   };
 }
