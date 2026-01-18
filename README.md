@@ -84,3 +84,7 @@ src/
 - Modern browsers with IndexedDB support
 - Chrome, Firefox, Safari, Edge (latest versions)
 - Mobile browsers (iOS Safari, Chrome Mobile)
+
+## Changelog
+
+- **fd43fbc** - Add global pointer up listener to handle pointer release outside canvas
