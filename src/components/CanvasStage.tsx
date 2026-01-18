@@ -13,16 +13,17 @@ interface CanvasStageProps {
 }
 
 export default function CanvasStage({
-  baseCanvasRef,
-  activeCanvasRef,
-  displayCanvasRef,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  disabled,
-  brushSize,
-  brushColor,
-}: CanvasStageProps) {
+      baseCanvasRef,
+      activeCanvasRef,
+      displayCanvasRef,
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onPointerLeave,
+      disabled,
+      brushSize,
+      brushColor,
+    }: CanvasStageProps) {
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [isHovering, setIsHovering] = useState(false);
 
@@ -90,22 +91,23 @@ export default function CanvasStage({
         height={1080}
       />
       
-      {/* Display canvas (composite of BASE + ACTIVE) */}
-      <canvas
-        ref={displayCanvasRef}
-        className="display-canvas"
-        onPointerDown={disabled ? undefined : onPointerDown}
-        onPointerMove={disabled ? undefined : onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        style={{
-          cursor: 'none', // Hide default cursor
-          touchAction: 'none',
-          display: 'block',
-        }}
-        width={1080}
-        height={1080}
-      />
+          {/* Display canvas (composite of BASE + ACTIVE) */}
+          <canvas
+            ref={displayCanvasRef}
+            className="display-canvas"
+            onPointerDown={disabled ? undefined : onPointerDown}
+            onPointerMove={disabled ? undefined : onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onPointerLeave={onPointerLeave || onPointerUp}
+            style={{
+              cursor: 'none', // Hide default cursor
+              touchAction: 'none',
+              display: 'block',
+            }}
+            width={1080}
+            height={1080}
+          />
       
       {/* Custom brush cursor preview */}
       {!disabled && isHovering && (

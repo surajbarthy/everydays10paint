@@ -261,18 +261,22 @@ export function useCanvasLayers({ color, tool, brushSize, onDrawingStart, onStro
     renderComposite();
   }, [color, brushSize, onDrawingStart, onStrokeRecord, renderComposite]);
 
-  // Handle pointer down (start drawing)
-  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const coords = getCanvasCoordinates(e);
-    if (coords) {
-      isDrawingRef.current = true;
-      lastPointRef.current = null; // Reset for new stroke
-      drawStroke(coords.x, coords.y, true);
-      // Capture pointer for move/up events
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    }
-  }, [getCanvasCoordinates, drawStroke]);
+      // Handle pointer down (start drawing)
+      const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+        e.preventDefault();
+        const coords = getCanvasCoordinates(e);
+        if (coords) {
+          isDrawingRef.current = true;
+          lastPointRef.current = null; // Reset for new stroke
+          drawStroke(coords.x, coords.y, true);
+          // Capture pointer for move/up events (even outside canvas)
+          try {
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          } catch (err) {
+            // Ignore errors if pointer capture fails
+          }
+        }
+      }, [getCanvasCoordinates, drawStroke]);
 
   // Handle pointer move (continue drawing)
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {

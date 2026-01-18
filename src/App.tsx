@@ -12,6 +12,7 @@ import {
   getAllStrokes,
   type Stroke,
 } from './utils/db';
+import { getDB } from './utils/db';
 import './App.css';
 
 const TIME_LIMIT = 10; // 10 seconds
@@ -37,6 +38,8 @@ function App() {
     brushSize: number;
     points: Array<{ x: number; y: number; timestamp: number }>;
   } | null>(null);
+  const savedStrokeIdsRef = useRef<string[]>([]); // Track saved strokes in order for undo
+  const undoneStrokeIdsRef = useRef<Set<string>>(new Set()); // Track which strokes were undone
 
   // Start timer when drawing begins
   function onDrawingStart() {
@@ -128,6 +131,7 @@ function App() {
       console.log('Saving stroke:', stroke.id, 'points:', stroke.points.length, 'turn:', stroke.turnNumber);
       try {
         await saveStroke(stroke);
+        savedStrokeIdsRef.current.push(stroke.id); // Track saved stroke
         console.log('Stroke saved successfully');
       } catch (error) {
         console.error('Error saving stroke:', error);
@@ -149,10 +153,36 @@ function App() {
     handlePointerMove,
     handlePointerUp: handlePointerUpOriginal,
     exportAsBlob,
-    undo,
+    undo: undoOriginal,
     replayStroke,
     renderComposite,
   } = useCanvasLayers({ color, tool, brushSize, onDrawingStart, onStrokeRecord: handleStrokeRecord });
+
+  // Wrap undo to mark the last saved stroke as undone
+  const undo = useCallback(async () => {
+    const success = undoOriginal();
+    if (success && savedStrokeIdsRef.current.length > 0) {
+      // Mark the last saved stroke as undone (most recent)
+      const strokeIdToUndo = savedStrokeIdsRef.current.pop();
+      if (strokeIdToUndo) {
+        try {
+          const db = await getDB();
+          const stroke = await db.get('strokes', strokeIdToUndo);
+          if (stroke) {
+            stroke.undone = true;
+            stroke.undoneAt = Date.now();
+            await db.put('strokes', stroke);
+            undoneStrokeIdsRef.current.add(strokeIdToUndo);
+            console.log('Marked stroke as undone:', strokeIdToUndo);
+          }
+        } catch (error) {
+          console.error('Error marking stroke as undone:', error);
+          // Re-add to array if update failed
+          savedStrokeIdsRef.current.push(strokeIdToUndo);
+        }
+      }
+    }
+  }, [undoOriginal]);
 
   // Wrap pointer up to save stroke
   const handlePointerUp = useCallback(async (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -170,6 +200,7 @@ function App() {
       console.log('Saving stroke on pointer up:', stroke.id, 'points:', stroke.points.length);
       try {
         await saveStroke(stroke);
+        savedStrokeIdsRef.current.push(stroke.id); // Track saved stroke
         console.log('Stroke saved on pointer up');
       } catch (error) {
         console.error('Error saving stroke on pointer up:', error);
@@ -284,8 +315,10 @@ function App() {
       timerIntervalRef.current = null;
     }
     
-    // Clear current stroke
+    // Clear current stroke and saved stroke tracking
     currentStrokeRef.current = null;
+    savedStrokeIdsRef.current = []; // Reset saved strokes for new turn
+    undoneStrokeIdsRef.current.clear(); // Reset undone strokes for new turn
     
     clearActive();
     setTimeLeft(TIME_LIMIT);

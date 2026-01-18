@@ -72,33 +72,92 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
         print("No strokes to render!")
         return
     
-    # Flatten all points with their timestamps and stroke info
-    all_points = []
+    # Group strokes by turn and compress timeline (remove gaps between turns)
+    turns = {}
     for stroke in strokes:
-        stroke_id = stroke['id']
-        color = hex_to_rgb(stroke['color'])
-        brush_size = stroke['brushSize']
-        
-        for i, point in enumerate(stroke['points']):
-            all_points.append({
-                'stroke_id': stroke_id,
-                'point_index': i,
-                'x': point['x'],
-                'y': point['y'],
-                'timestamp': point['timestamp'],
-                'color': color,
-                'brush_size': brush_size,
-                'stroke': stroke,
-            })
+        turn_num = stroke['turnNumber']
+        if turn_num not in turns:
+            turns[turn_num] = []
+        turns[turn_num].append(stroke)
     
-    # Sort by timestamp
+    # Sort turns
+    sorted_turn_numbers = sorted(turns.keys())
+    
+    # Compress timeline: normalize timestamps within each turn, then sequence turns
+    all_points = []
+    cumulative_time = 0
+    
+    for turn_num in sorted_turn_numbers:
+        turn_strokes = turns[turn_num]
+        # Sort strokes in this turn by timestamp
+        turn_strokes.sort(key=lambda s: s['timestamp'])
+        
+        # Find the first timestamp in this turn
+        turn_start_time = min(
+            min(p['timestamp'] for p in s['points']) 
+            for s in turn_strokes
+        )
+        
+        # Add all points from this turn with compressed timestamps
+        for stroke in turn_strokes:
+            stroke_id = stroke['id']
+            color = hex_to_rgb(stroke['color'])
+            brush_size = stroke['brushSize']
+            undone = stroke.get('undone', False)
+            undone_at = stroke.get('undoneAt')
+            
+            # Calculate compressed timestamp for when undo was pressed (if applicable)
+            compressed_undone_at = None
+            if undone and undone_at:
+                # Find the point in this stroke that's closest to undone_at
+                # and calculate its compressed timestamp
+                for point in stroke['points']:
+                    if point['timestamp'] >= undone_at:
+                        relative_undone_time = point['timestamp'] - turn_start_time
+                        compressed_undone_at = cumulative_time + relative_undone_time
+                        break
+                # If no point found, use the last point's timestamp
+                if compressed_undone_at is None and stroke['points']:
+                    last_point = stroke['points'][-1]
+                    relative_undone_time = last_point['timestamp'] - turn_start_time
+                    compressed_undone_at = cumulative_time + relative_undone_time
+            
+            for i, point in enumerate(stroke['points']):
+                # Normalize timestamp relative to turn start, then add to cumulative time
+                relative_time = point['timestamp'] - turn_start_time
+                compressed_timestamp = cumulative_time + relative_time
+                
+                # Skip points after undo timestamp
+                if undone and compressed_undone_at and compressed_timestamp > compressed_undone_at:
+                    continue
+                
+                all_points.append({
+                    'stroke_id': stroke_id,
+                    'point_index': i,
+                    'x': point['x'],
+                    'y': point['y'],
+                    'timestamp': compressed_timestamp,
+                    'color': color,
+                    'brush_size': brush_size,
+                    'stroke': stroke,
+                })
+        
+        # Update cumulative time: add the duration of this turn
+        turn_end_time = max(
+            max(p['timestamp'] for p in s['points']) 
+            for s in turn_strokes
+        )
+        turn_duration = turn_end_time - turn_start_time
+        cumulative_time += turn_duration
+    
+    # Sort by compressed timestamp
     all_points.sort(key=lambda p: p['timestamp'])
     
     if not all_points:
         print("No points to render!")
         return
     
-    # Calculate time range
+    # Calculate time range (now compressed, no gaps)
     start_time = all_points[0]['timestamp']
     end_time = all_points[-1]['timestamp']
     duration_ms = end_time - start_time
@@ -153,18 +212,33 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
             # Start new stroke if needed
             if stroke_id not in active_strokes:
                 active_strokes[stroke_id] = 0
-                # Redraw all completed strokes
+                # Redraw all completed strokes in chronological order
                 canvas = Image.new('RGB', (CANVAS_SIZE, CANVAS_SIZE), bg_color)
                 draw = ImageDraw.Draw(canvas)
-                for completed_id in completed_strokes:
-                    stroke = next(s for s in strokes if s['id'] == completed_id)
+                # Get completed strokes and sort by timestamp to maintain proper layering
+                completed_stroke_list = [s for s in strokes if s['id'] in completed_strokes]
+                completed_stroke_list.sort(key=lambda s: s['timestamp'])
+                
+                for stroke in completed_stroke_list:
+                    # Handle undone strokes - only draw up to undo point
+                    if stroke.get('undone', False):
+                        undone_at = stroke.get('undoneAt')
+                        if undone_at:
+                            points_to_draw = [p for p in stroke['points'] if p['timestamp'] < undone_at]
+                        else:
+                            points_to_draw = []
+                    else:
+                        points_to_draw = stroke['points']
+                    
+                    if not points_to_draw:
+                        continue
+                    
                     color = hex_to_rgb(stroke['color'])
-                    points = stroke['points']
                     brush_size = stroke['brushSize']
                     
-                    if len(points) == 1:
+                    if len(points_to_draw) == 1:
                         # Single point stroke (tap) - just draw the point
-                        pt = points[0]
+                        pt = points_to_draw[0]
                         left = pt['x'] - brush_size / 2
                         top = pt['y'] - brush_size / 2
                         right = pt['x'] + brush_size / 2
@@ -173,7 +247,7 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
                     else:
                         # Multi-point stroke - draw first point, then segments
                         # Draw first point
-                        first_pt = points[0]
+                        first_pt = points_to_draw[0]
                         left = first_pt['x'] - brush_size / 2
                         top = first_pt['y'] - brush_size / 2
                         right = first_pt['x'] + brush_size / 2
@@ -181,9 +255,9 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
                         draw.rectangle([left, top, right, bottom], fill=color)
                         
                         # Draw segments between points
-                        for i in range(1, len(points)):
-                            start_pt = (points[i-1]['x'], points[i-1]['y'])
-                            end_pt = (points[i]['x'], points[i]['y'])
+                        for i in range(1, len(points_to_draw)):
+                            start_pt = (points_to_draw[i-1]['x'], points_to_draw[i-1]['y'])
+                            end_pt = (points_to_draw[i]['x'], points_to_draw[i]['y'])
                             draw_stroke_segment(draw, start_pt, end_pt, color, brush_size)
             
             # Draw point
@@ -224,17 +298,31 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
             if not all_points_processed:
                 all_points_processed = True
                 print(f"All points processed. Redrawing all {len(strokes)} strokes...")
-            # Always redraw everything in remaining frames to ensure all strokes are visible
+            # Always redraw everything in remaining frames to ensure all strokes are visible (excluding undone parts)
             canvas = Image.new('RGB', (CANVAS_SIZE, CANVAS_SIZE), bg_color)
             draw = ImageDraw.Draw(canvas)
-            for stroke in strokes:
+            # Sort strokes by timestamp to maintain proper layering
+            sorted_strokes = sorted(strokes, key=lambda s: s['timestamp'])
+            for stroke in sorted_strokes:
+                # Handle undone strokes - only draw up to undo point
+                if stroke.get('undone', False):
+                    undone_at = stroke.get('undoneAt')
+                    if undone_at:
+                        points_to_draw = [p for p in stroke['points'] if p['timestamp'] < undone_at]
+                    else:
+                        points_to_draw = []
+                else:
+                    points_to_draw = stroke['points']
+                
+                if not points_to_draw:
+                    continue
+                
                 color = hex_to_rgb(stroke['color'])
-                points = stroke['points']
                 brush_size = stroke['brushSize']
                 
-                if len(points) == 1:
+                if len(points_to_draw) == 1:
                     # Single point stroke (tap)
-                    pt = points[0]
+                    pt = points_to_draw[0]
                     left = pt['x'] - brush_size / 2
                     top = pt['y'] - brush_size / 2
                     right = pt['x'] + brush_size / 2
@@ -242,16 +330,16 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
                     draw.rectangle([left, top, right, bottom], fill=color)
                 else:
                     # Multi-point stroke
-                    first_pt = points[0]
+                    first_pt = points_to_draw[0]
                     left = first_pt['x'] - brush_size / 2
                     top = first_pt['y'] - brush_size / 2
                     right = first_pt['x'] + brush_size / 2
                     bottom = first_pt['y'] + brush_size / 2
                     draw.rectangle([left, top, right, bottom], fill=color)
                     
-                    for i in range(1, len(points)):
-                        start_pt = (points[i-1]['x'], points[i-1]['y'])
-                        end_pt = (points[i]['x'], points[i]['y'])
+                    for i in range(1, len(points_to_draw)):
+                        start_pt = (points_to_draw[i-1]['x'], points_to_draw[i-1]['y'])
+                        end_pt = (points_to_draw[i]['x'], points_to_draw[i]['y'])
                         draw_stroke_segment(draw, start_pt, end_pt, color, brush_size)
         
         # Convert PIL image to OpenCV format and write frame
@@ -262,10 +350,29 @@ def create_timelapse_video(strokes: List[Dict], output_path: str,
             progress = (frame_num + 1) / total_frames * 100
             print(f"Progress: {progress:.1f}% ({frame_num + 1}/{total_frames} frames)")
     
-    # Final frame: ensure all strokes are drawn
+    # Final frame: ensure all strokes are drawn in chronological order (excluding undone parts)
     canvas = Image.new('RGB', (CANVAS_SIZE, CANVAS_SIZE), bg_color)
     draw = ImageDraw.Draw(canvas)
-    for stroke in strokes:
+    # Sort strokes by timestamp to maintain proper layering
+    sorted_strokes = sorted(strokes, key=lambda s: s['timestamp'])
+    for stroke in sorted_strokes:
+        # Skip undone strokes entirely, or only draw up to undo point
+        if stroke.get('undone', False):
+            undone_at = stroke.get('undoneAt')
+            if undone_at:
+                # Only draw points before undo timestamp
+                points_to_draw = [p for p in stroke['points'] if p['timestamp'] < undone_at]
+            else:
+                # If no undo timestamp, skip the stroke entirely
+                continue
+        else:
+            points_to_draw = stroke['points']
+        
+        if not points_to_draw:
+            continue
+            
+        color = hex_to_rgb(stroke['color'])
+        brush_size = stroke['brushSize']
         color = hex_to_rgb(stroke['color'])
         points = stroke['points']
         brush_size = stroke['brushSize']

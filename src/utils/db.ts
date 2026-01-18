@@ -7,6 +7,8 @@ export interface Stroke {
   color: string;
   brushSize: number;
   points: Array<{ x: number; y: number; timestamp: number }>;
+  undone?: boolean; // Track if this stroke was undone
+  undoneAt?: number; // Timestamp when undo was pressed (for video generation)
 }
 
 interface CanvasDB extends DBSchema {
