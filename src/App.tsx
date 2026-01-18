@@ -10,40 +10,69 @@ import {
 } from './utils/db';
 import './App.css';
 
-const MAX_DABS = 10;
+const TIME_LIMIT = 10; // 10 seconds
+
+const BRUSH_SIZES = [10, 50, 100]; // Three brush sizes
 
 function App() {
   const [color, setColor] = useState('#000000');
   const [tool, setTool] = useState<Tool>('brush');
-  const [dabsLeft, setDabsLeft] = useState(MAX_DABS);
+  const [brushSize, setBrushSize] = useState(100);
+  const [timeLeft, setTimeLeft] = useState(TIME_LIMIT);
   const [isLocked, setIsLocked] = useState(false);
-  const [hasDabs, setHasDabs] = useState(false);
+  const [hasDrawing, setHasDrawing] = useState(false);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [turnNumber, setTurnNumber] = useState(0);
   const canvasInitialized = useRef(false);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Handle dab (decrement counter) - defined before hook to avoid issues
-  function onDab() {
-    if (isLocked || dabsLeft <= 0) return;
+  // Start timer when drawing begins
+  function onDrawingStart() {
+    if (isLocked || isTimerRunning || timeLeft <= 0) return;
+    
+    if (!isTimerRunning && timeLeft === TIME_LIMIT) {
+      // First stroke - start the timer
+      setIsTimerRunning(true);
+      setHasDrawing(true);
+      
+      timerIntervalRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 0.1) {
+            // Timer expired
+            setIsTimerRunning(false);
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+            return 0;
+          }
+          return Math.max(0, prev - 0.1);
+        });
+      }, 100); // Update every 100ms for smooth countdown
+    } else {
+      setHasDrawing(true);
+    }
+  }
 
-    setDabsLeft((prev) => {
-      const newValue = prev - 1;
-      if (newValue === 0) {
-        // Disable drawing when dabs reach 0
-        setTool('brush'); // Reset tool
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
       }
-      return newValue;
-    });
+    };
+  }, []);
 
-    setHasDabs(true);
-  }
-
-  // Handle undo dab (restore counter)
-  function onUndoDab() {
-    setDabsLeft((prev) => {
-      // Don't exceed MAX_DABS
-      return Math.min(prev + 1, MAX_DABS);
-    });
-  }
+  // Stop timer when time runs out
+  useEffect(() => {
+    if (timeLeft <= 0 && isTimerRunning) {
+      setIsTimerRunning(false);
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    }
+  }, [timeLeft, isTimerRunning]);
 
   const {
     baseCanvasRef,
@@ -53,9 +82,11 @@ function App() {
     clearActive,
     mergeLayers,
     handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
     exportAsBlob,
     undo,
-  } = useCanvasLayers({ color, tool, onDab, onUndoDab });
+  } = useCanvasLayers({ color, tool, brushSize, onDrawingStart });
 
   // Load canvas on mount
   useEffect(() => {
@@ -82,7 +113,14 @@ function App() {
 
   // Handle Done button
   async function handleDone() {
-    if (isLocked || !hasDabs) return;
+    if (isLocked || !hasDrawing) return;
+
+    // Stop timer if running
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    setIsTimerRunning(false);
 
     // Merge active layer onto base
     mergeLayers();
@@ -116,15 +154,22 @@ function App() {
     // Update state
     setTurnNumber(newTurnNumber);
     setIsLocked(true);
-    setHasDabs(false);
+    setHasDrawing(false);
   }
 
   // Handle Next Person button
   function handleNextPerson() {
+    // Stop timer if running
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
     clearActive();
-    setDabsLeft(MAX_DABS);
+    setTimeLeft(TIME_LIMIT);
     setIsLocked(false);
-    setHasDabs(false);
+    setHasDrawing(false);
+    setIsTimerRunning(false);
     setTool('brush');
   }
 
@@ -146,27 +191,37 @@ function App() {
       }
     }
 
+    // Stop timer if running
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
     // Reset state
     setTurnNumber(0);
-    setDabsLeft(MAX_DABS);
+    setTimeLeft(TIME_LIMIT);
     setIsLocked(false);
-    setHasDabs(false);
+    setHasDrawing(false);
+    setIsTimerRunning(false);
     setTool('brush');
     setColor('#000000');
   }
 
   return (
     <div className="app">
-      <h1>Turn-Based Drawing Canvas</h1>
+      <h1>10 Years of Everydays Drawing Canvas</h1>
       <div className="app-content">
         <Toolbar
           color={color}
           tool={tool}
-          dabsLeft={dabsLeft}
+          brushSize={brushSize}
+          brushSizes={BRUSH_SIZES}
+          timeLeft={timeLeft}
           isLocked={isLocked}
-          hasDabs={hasDabs}
+          hasDrawing={hasDrawing}
           onColorChange={setColor}
           onToolChange={setTool}
+          onBrushSizeChange={setBrushSize}
           onDone={handleDone}
           onNextPerson={handleNextPerson}
           onReset={handleReset}
@@ -176,8 +231,12 @@ function App() {
           baseCanvasRef={baseCanvasRef}
           activeCanvasRef={activeCanvasRef}
           displayCanvasRef={displayCanvasRef}
-          onPointerDown={isLocked || dabsLeft === 0 ? () => {} : handlePointerDown}
-          disabled={isLocked || dabsLeft === 0}
+          onPointerDown={isLocked || timeLeft <= 0 ? () => {} : handlePointerDown}
+          onPointerMove={isLocked || timeLeft <= 0 ? () => {} : handlePointerMove}
+          onPointerUp={handlePointerUp}
+          disabled={isLocked || timeLeft <= 0}
+          brushSize={brushSize}
+          brushColor={color}
         />
       </div>
     </div>

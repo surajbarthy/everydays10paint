@@ -1,28 +1,39 @@
 import type { Tool } from '../hooks/useCanvasLayers';
 
 const COLOR_PALETTE = [
-  '#000000', // black
+  // Row 1: Grayscale/Dark Tones
   '#FFFFFF', // white
-  '#FF0000', // red
-  '#00FF00', // green
-  '#0000FF', // blue
-  '#FFFF00', // yellow
-  '#FF00FF', // magenta
-  '#00FFFF', // cyan
-  '#FFA500', // orange
-  '#800080', // purple
-  '#FFC0CB', // pink
-  '#A52A2A', // brown
+  '#E4E4E4', // light gray
+  '#888888', // medium gray
+  '#222222', // dark gray/near black
+  // Row 2: Warm Tones
+  '#FFA7D1', // light pink
+  '#E50000', // bright red
+  '#E59500', // orange
+  '#A06A42', // brown
+  // Row 3: Green/Cyan Tones
+  '#E5D900', // yellow
+  '#94E044', // lime green
+  '#02BE01', // bright green
+  '#00D3DD', // cyan/bright aqua
+  // Row 4: Blue/Purple Tones
+  '#0083C7', // medium blue
+  '#0000EA', // bright blue
+  '#CF6EE4', // lavender/light purple
+  '#820080', // dark purple/magenta
 ];
 
 interface ToolbarProps {
   color: string;
   tool: Tool;
-  dabsLeft: number;
+  brushSize: number;
+  brushSizes: number[];
+  timeLeft: number;
   isLocked: boolean;
-  hasDabs: boolean;
+  hasDrawing: boolean;
   onColorChange: (color: string) => void;
   onToolChange: (tool: Tool) => void;
+  onBrushSizeChange: (size: number) => void;
   onDone: () => void;
   onNextPerson: () => void;
   onReset: () => void;
@@ -32,11 +43,14 @@ interface ToolbarProps {
 export default function Toolbar({
   color,
   tool,
-  dabsLeft,
+  brushSize,
+  brushSizes,
+  timeLeft,
   isLocked,
-  hasDabs,
+  hasDrawing,
   onColorChange,
   onToolChange,
+  onBrushSizeChange,
   onDone,
   onNextPerson,
   onReset,
@@ -61,12 +75,35 @@ export default function Toolbar({
       </div>
 
       <div className="toolbar-section">
+        <h3>Brush Size</h3>
+        <div className="brush-sizes">
+          {brushSizes.map((size) => (
+            <button
+              key={size}
+              className={`brush-size-button ${brushSize === size ? 'active' : ''}`}
+              onClick={() => onBrushSizeChange(size)}
+              disabled={isLocked || timeLeft <= 0}
+              title={`${size}px`}
+            >
+              <div 
+                className="brush-size-shape"
+                style={{
+                  width: `${Math.min(size / 3, 40)}px`,
+                  height: `${Math.min(size / 3, 40)}px`,
+                }}
+              />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="toolbar-section">
         <h3>Tools</h3>
         <div className="tools">
           <button
             className={`tool-button ${tool === 'brush' ? 'active' : ''}`}
             onClick={() => onToolChange('brush')}
-            disabled={isLocked || dabsLeft === 0}
+            disabled={isLocked || timeLeft <= 0}
           >
             Brush
           </button>
@@ -85,8 +122,11 @@ export default function Toolbar({
       </div>
 
       <div className="toolbar-section">
-        <div className="dabs-counter">
-          <strong>Dabs left: {dabsLeft}</strong>
+        <div className="timer-counter">
+          <strong>Time left: {timeLeft.toFixed(1)}s</strong>
+          {timeLeft <= 0 && !isLocked && (
+            <p className="timer-expired">Time's up!</p>
+          )}
         </div>
       </div>
 
@@ -95,7 +135,7 @@ export default function Toolbar({
           <button
             className="action-button done-button"
             onClick={onDone}
-            disabled={isLocked || !hasDabs || dabsLeft === 10}
+            disabled={isLocked || !hasDrawing}
           >
             Done
           </button>

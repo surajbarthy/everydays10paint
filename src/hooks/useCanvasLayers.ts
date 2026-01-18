@@ -1,23 +1,23 @@
 import { useRef, useEffect, useCallback } from 'react';
 
 const CANVAS_SIZE = 1080;
-const BRUSH_SIZE = 100;
-const GRID_SIZE = 108; // 108px grid spacing
 
 export type Tool = 'brush';
 
 interface UseCanvasLayersProps {
   color: string;
   tool: Tool;
-  onDab: () => void;
-  onUndoDab?: () => void;
+  brushSize: number;
+  onDrawingStart: () => void;
 }
 
-export function useCanvasLayers({ color, tool, onDab, onUndoDab }: UseCanvasLayersProps) {
+export function useCanvasLayers({ color, tool, brushSize, onDrawingStart }: UseCanvasLayersProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeCanvasRef = useRef<HTMLCanvasElement>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement>(null);
   const undoStackRef = useRef<ImageData[]>([]);
+  const isDrawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   // Initialize canvas with proper DPR handling
   const initCanvas = useCallback((canvas: HTMLCanvasElement, isOffscreen = false) => {
@@ -38,28 +38,6 @@ export function useCanvasLayers({ color, tool, onDab, onUndoDab }: UseCanvasLaye
     ctx.scale(dpr, dpr);
     
     return ctx;
-  }, []);
-
-  // Draw grid reference on canvas
-  const drawGrid = useCallback((ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#E0E0E0'; // Light grey
-    ctx.lineWidth = 1;
-    
-    // Draw vertical lines
-    for (let x = 0; x <= CANVAS_SIZE; x += GRID_SIZE) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, CANVAS_SIZE);
-      ctx.stroke();
-    }
-    
-    // Draw horizontal lines
-    for (let y = 0; y <= CANVAS_SIZE; y += GRID_SIZE) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(CANVAS_SIZE, y);
-      ctx.stroke();
-    }
   }, []);
 
   // Render composite: draw BASE then ACTIVE on top
@@ -83,10 +61,7 @@ export function useCanvasLayers({ color, tool, onDab, onUndoDab }: UseCanvasLaye
     
     // Draw ACTIVE layer on top
     ctx.drawImage(activeCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    
-    // Draw grid reference on top (so it's always visible)
-    drawGrid(ctx);
-  }, [drawGrid]);
+  }, []);
 
   // Initialize all canvases
   useEffect(() => {
@@ -162,16 +137,23 @@ export function useCanvasLayers({ color, tool, onDab, onUndoDab }: UseCanvasLaye
     // Restore previous state
     const previousState = undoStackRef.current.pop();
     if (previousState) {
-      ctx.putImageData(previousState, 0, 0);
-      renderComposite();
-      // Notify parent to restore a dab
-      if (onUndoDab) {
-        onUndoDab();
+      // Clear canvas first
+      ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      // Create temp canvas to restore the imageData, then draw it onto active canvas
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = CANVAS_SIZE;
+      tempCanvas.height = CANVAS_SIZE;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (tempCtx) {
+        tempCtx.putImageData(previousState, 0, 0);
+        // Draw the temp canvas onto the active canvas (scaled by DPR automatically)
+        ctx.drawImage(tempCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
       }
+      renderComposite();
       return true;
     }
     return false;
-  }, [renderComposite, onUndoDab]);
+  }, [renderComposite]);
 
   // Merge active onto base
   const mergeLayers = useCallback(() => {
@@ -204,42 +186,105 @@ export function useCanvasLayers({ color, tool, onDab, onUndoDab }: UseCanvasLaye
     return { x, y };
   }, []);
 
-  // Draw a dab (square brush)
-  const drawDab = useCallback((x: number, y: number) => {
+  // Draw continuous brush stroke
+  const drawStroke = useCallback((x: number, y: number, isFirstPoint: boolean) => {
     const activeCanvas = activeCanvasRef.current;
     if (!activeCanvas) return;
     
     const ctx = activeCanvas.getContext('2d');
     if (!ctx) return;
     
-    // Save current state for undo before drawing
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    undoStackRef.current.push(imageData);
+    // Save state only on first point of stroke
+    if (isFirstPoint) {
+      // Save state before drawing
+      // Since context is scaled by DPR, we need to work with the actual canvas size
+      // But we want to save at logical size (1080x1080), so we'll use a temp canvas
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = CANVAS_SIZE;
+      tempCanvas.height = CANVAS_SIZE;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (tempCtx) {
+        // Draw current active canvas onto temp canvas at logical size
+        tempCtx.drawImage(activeCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        const imageData = tempCtx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        undoStackRef.current.push(imageData);
+      }
+      onDrawingStart();
+    }
     
-    // Draw filled square (centered on click position)
     ctx.fillStyle = color;
-    ctx.fillRect(
-      x - BRUSH_SIZE / 2,
-      y - BRUSH_SIZE / 2,
-      BRUSH_SIZE,
-      BRUSH_SIZE
-    );
+    
+    if (lastPointRef.current && !isFirstPoint) {
+      // Draw line between last point and current point
+      const dx = x - lastPointRef.current.x;
+      const dy = y - lastPointRef.current.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance > 0) {
+        const steps = Math.ceil(distance / (brushSize / 4));
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const px = lastPointRef.current.x + dx * t;
+          const py = lastPointRef.current.y + dy * t;
+          ctx.fillRect(
+            px - brushSize / 2,
+            py - brushSize / 2,
+            brushSize,
+            brushSize
+          );
+        }
+      }
+    } else {
+      // Draw square at current position
+      ctx.fillRect(
+        x - brushSize / 2,
+        y - brushSize / 2,
+        brushSize,
+        brushSize
+      );
+    }
+    
+    lastPointRef.current = { x, y };
     
     // Update display
     renderComposite();
-    
-    // Notify parent of dab
-    onDab();
-  }, [color, onDab, renderComposite]);
+  }, [color, brushSize, onDrawingStart, renderComposite]);
 
-  // Handle pointer down (single dab)
+  // Handle pointer down (start drawing)
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const coords = getCanvasCoordinates(e);
     if (coords) {
-      drawDab(coords.x, coords.y);
+      isDrawingRef.current = true;
+      lastPointRef.current = null; // Reset for new stroke
+      drawStroke(coords.x, coords.y, true);
+      // Capture pointer for move/up events
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
     }
-  }, [getCanvasCoordinates, drawDab]);
+  }, [getCanvasCoordinates, drawStroke]);
+
+  // Handle pointer move (continue drawing)
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
+    e.preventDefault();
+    const coords = getCanvasCoordinates(e);
+    if (coords) {
+      drawStroke(coords.x, coords.y, false);
+    }
+  }, [getCanvasCoordinates, drawStroke]);
+
+  // Handle pointer up (stop drawing)
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isDrawingRef.current) {
+      e.preventDefault();
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      // Release pointer capture
+      if ((e.target as HTMLElement).hasPointerCapture(e.pointerId)) {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      }
+    }
+  }, []);
 
   // Export merged canvas as PNG blob at exactly 1080x1080 resolution
   const exportAsBlob = useCallback(async (): Promise<Blob> => {
@@ -295,6 +340,8 @@ export function useCanvasLayers({ color, tool, onDab, onUndoDab }: UseCanvasLaye
     clearActive,
     mergeLayers,
     handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
     exportAsBlob,
     exportAsDataURL,
     undo,
