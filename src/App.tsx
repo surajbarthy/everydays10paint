@@ -37,9 +37,6 @@ function App() {
     brushSize: number;
     points: Array<{ x: number; y: number; timestamp: number }>;
   } | null>(null);
-  const [isPlayingTimelapse, setIsPlayingTimelapse] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1); // 1x, 2x, 4x, etc.
-  const playbackIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Start timer when drawing begins
   function onDrawingStart() {
@@ -233,7 +230,7 @@ function App() {
     const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5);
     const filename = `canvas_turn_${String(newTurnNumber).padStart(3, '0')}_${timestamp}.png`;
 
-    // Download the file
+    // Download the canvas screenshot
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -242,6 +239,32 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // Export strokes for this turn
+    const turnStrokes = await getStrokesForTurn(turnNumber);
+    if (turnStrokes.length > 0) {
+      const strokeExportData = {
+        metadata: {
+          exportDate: now.toISOString(),
+          turnNumber: turnNumber,
+          totalStrokes: turnStrokes.length,
+          canvasSize: 1080,
+          description: `Stroke data for turn ${turnNumber}. Each stroke contains points with timestamps in milliseconds since epoch.`,
+        },
+        strokes: turnStrokes,
+      };
+      
+      const strokeDataStr = JSON.stringify(strokeExportData, null, 2);
+      const strokeDataBlob = new Blob([strokeDataStr], { type: 'application/json' });
+      const strokeUrl = URL.createObjectURL(strokeDataBlob);
+      const strokeA = document.createElement('a');
+      strokeA.href = strokeUrl;
+      strokeA.download = `strokes_turn_${String(turnNumber).padStart(3, '0')}_${timestamp}.json`;
+      document.body.appendChild(strokeA);
+      strokeA.click();
+      document.body.removeChild(strokeA);
+      URL.revokeObjectURL(strokeUrl);
+    }
 
     // Save to IndexedDB
     await saveCanvas(blob, newTurnNumber);
@@ -270,160 +293,6 @@ function App() {
     setHasDrawing(false);
     setIsTimerRunning(false);
     setTool('brush');
-  }
-
-  // Play timelapse
-  async function playTimelapse() {
-    if (isPlayingTimelapse) {
-      // Stop playback
-      if (playbackIntervalRef.current) {
-        clearTimeout(playbackIntervalRef.current);
-        playbackIntervalRef.current = null;
-      }
-      setIsPlayingTimelapse(false);
-      return;
-    }
-
-    // Get all strokes for the previous turn (since we're locked, the strokes were for turnNumber-1)
-    // Actually, if we're locked, the strokes were recorded for the turn that just completed
-    // So if turnNumber is 1, we want strokes for turn 0
-    const strokeTurnNumber = turnNumber > 0 ? turnNumber - 1 : 0;
-    console.log('Loading strokes for turn:', strokeTurnNumber, '(current turn:', turnNumber, ')');
-    const strokes = await getStrokesForTurn(strokeTurnNumber);
-    console.log('Found strokes:', strokes.length);
-    if (strokes.length === 0) {
-      // Try to get all strokes to see what's in the database
-      const allStrokes = await getAllStrokes();
-      console.log('All strokes in database:', allStrokes.length);
-      if (allStrokes.length > 0) {
-        console.log('Strokes found for other turns:', allStrokes.map(s => ({ turn: s.turnNumber, id: s.id })));
-        // Try the current turn number too
-        const currentTurnStrokes = await getStrokesForTurn(turnNumber);
-        console.log('Strokes for current turn:', currentTurnStrokes.length);
-      }
-      alert(`No strokes recorded for turn ${strokeTurnNumber}. Total strokes in database: ${allStrokes.length}`);
-      return;
-    }
-
-    // Clear active canvas
-    clearActive();
-
-    // Calculate timing
-    const firstStroke = strokes[0];
-    const baseTime = firstStroke.timestamp;
-
-    setIsPlayingTimelapse(true);
-
-    // Build a timeline of all points
-    const timeline: Array<{
-      stroke: Stroke;
-      pointIndex: number;
-      relativeTime: number;
-    }> = [];
-
-    strokes.forEach(stroke => {
-      stroke.points.forEach((point, idx) => {
-        timeline.push({
-          stroke,
-          pointIndex: idx,
-          relativeTime: point.timestamp - baseTime,
-        });
-      });
-    });
-
-    timeline.sort((a, b) => a.relativeTime - b.relativeTime);
-
-    const startTime = Date.now();
-    let currentIndex = 0;
-    const completedStrokes = new Set<string>();
-
-    const playNext = () => {
-      if (!isPlayingTimelapse) return;
-
-      const elapsed = (Date.now() - startTime) * playbackSpeed;
-      const targetTime = elapsed;
-
-      // Process all points that should be drawn by now
-      while (currentIndex < timeline.length) {
-        const item = timeline[currentIndex];
-        if (item.relativeTime <= targetTime) {
-          const stroke = item.stroke;
-          const point = stroke.points[item.pointIndex];
-
-          // If starting a new stroke, clear and redraw completed strokes
-          if (item.pointIndex === 0 && !completedStrokes.has(stroke.id)) {
-            clearActive();
-            // Redraw all completed strokes
-            strokes.forEach(s => {
-              if (completedStrokes.has(s.id)) {
-                replayStroke(s);
-              }
-            });
-            completedStrokes.add(stroke.id);
-          }
-
-          // Draw this point
-          const ctx = activeCanvasRef.current?.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = stroke.color;
-            if (item.pointIndex > 0) {
-              // Draw line from previous point
-              const prevPoint = stroke.points[item.pointIndex - 1];
-              const dx = point.x - prevPoint.x;
-              const dy = point.y - prevPoint.y;
-              const distance = Math.sqrt(dx * dx + dy * dy);
-              if (distance > 0) {
-                const steps = Math.ceil(distance / (stroke.brushSize / 4));
-                for (let j = 0; j <= steps; j++) {
-                  const t = j / steps;
-                  const px = prevPoint.x + dx * t;
-                  const py = prevPoint.y + dy * t;
-                  ctx.fillRect(
-                    px - stroke.brushSize / 2,
-                    py - stroke.brushSize / 2,
-                    stroke.brushSize,
-                    stroke.brushSize
-                  );
-                }
-              }
-            } else {
-              // First point
-              ctx.fillRect(
-                point.x - stroke.brushSize / 2,
-                point.y - stroke.brushSize / 2,
-                stroke.brushSize,
-                stroke.brushSize
-              );
-            }
-            renderComposite();
-          }
-
-          currentIndex++;
-        } else {
-          break;
-        }
-      }
-
-      // Check if complete
-      if (currentIndex >= timeline.length) {
-        // Ensure all strokes are drawn
-        clearActive();
-        strokes.forEach(s => replayStroke(s));
-        setIsPlayingTimelapse(false);
-        if (playbackIntervalRef.current) {
-          clearTimeout(playbackIntervalRef.current);
-          playbackIntervalRef.current = null;
-        }
-        return;
-      }
-
-      // Continue playback
-      if (isPlayingTimelapse) {
-        playbackIntervalRef.current = setTimeout(playNext, 16); // ~60fps
-      }
-    };
-
-    playNext();
   }
 
   // Export stroke data as JSON for video creation
@@ -470,13 +339,6 @@ function App() {
     if (!confirm('Are you sure you want to reset? This will clear all canvas data.')) {
       return;
     }
-
-    // Stop playback if running
-    if (playbackIntervalRef.current) {
-      clearInterval(playbackIntervalRef.current);
-      playbackIntervalRef.current = null;
-    }
-    setIsPlayingTimelapse(false);
 
     await clearAll();
     clearActive();
@@ -529,9 +391,6 @@ function App() {
           onDone={handleDone}
           onNextPerson={handleNextPerson}
           onUndo={undo}
-          isPlayingTimelapse={isPlayingTimelapse}
-          onPlayTimelapse={playTimelapse}
-          onExportStrokes={exportStrokeData}
         />
         <CanvasStage
           baseCanvasRef={baseCanvasRef}
@@ -546,12 +405,21 @@ function App() {
         />
       </div>
       
-      {/* Invisible reset button at bottom right */}
+      {/* Invisible reset button at bottom left */}
       <button
         className="invisible-reset-button"
         onClick={handleReset}
         title="Reset"
       />
+      
+      {/* Export all strokes button at bottom right */}
+      <button
+        className="export-all-strokes-button"
+        onClick={exportStrokeData}
+        title="Export all strokes as JSON for video creation"
+      >
+        Export All Strokes
+      </button>
     </div>
   );
 }
