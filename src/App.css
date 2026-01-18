@@ -4,12 +4,26 @@
   margin: 0 auto;
 }
 
-.app h1 {
-  text-align: center;
+.title-container {
+  background: rgba(0, 0, 0, 0.6);
+  padding: 20px 30px;
+  border-radius: 8px;
   margin-bottom: 20px;
+  text-align: center;
+}
+
+.app h1 {
+  margin-bottom: 8px;
   color: #fff;
   font-size: 2rem;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.instructions {
+  margin: 0;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  opacity: 0.9;
 }
 
 .app-content {
@@ -76,8 +90,8 @@
 
 .color-palette {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
 }
 
 .color-swatch {
@@ -87,7 +101,7 @@
   cursor: pointer;
   transition: all 0.2s;
   padding: 0;
-  min-height: 40px;
+  min-height: 28px;
 }
 
 .color-swatch:hover:not(:disabled) {
@@ -275,6 +289,19 @@
   background: #da190b;
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.invisible-reset-button {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 60px;
+  height: 60px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  z-index: 1000;
 }
 
 .locked-message {

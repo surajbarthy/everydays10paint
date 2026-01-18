@@ -209,7 +209,12 @@ function App() {
 
   return (
     <div className="app">
-      <h1>10 Years of Everydays Drawing Canvas</h1>
+      <div className="title-container">
+        <h1>Help me make Day 3650 today</h1>
+        <p className="instructions">
+          You have 10 seconds to add to this canvas. Timer will start as soon as you start brushing.
+        </p>
+      </div>
       <div className="app-content">
         <Toolbar
           color={color}
@@ -224,7 +229,6 @@ function App() {
           onBrushSizeChange={setBrushSize}
           onDone={handleDone}
           onNextPerson={handleNextPerson}
-          onReset={handleReset}
           onUndo={undo}
         />
         <CanvasStage
@@ -239,6 +243,13 @@ function App() {
           brushColor={color}
         />
       </div>
+      
+      {/* Invisible reset button at bottom right */}
+      <button
+        className="invisible-reset-button"
+        onClick={handleReset}
+        title="Reset"
+      />
     </div>
   );
 }

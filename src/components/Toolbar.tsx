@@ -36,7 +36,6 @@ interface ToolbarProps {
   onBrushSizeChange: (size: number) => void;
   onDone: () => void;
   onNextPerson: () => void;
-  onReset: () => void;
   onUndo: () => void;
 }
 
@@ -53,7 +52,6 @@ export default function Toolbar({
   onBrushSizeChange,
   onDone,
   onNextPerson,
-  onReset,
   onUndo,
 }: ToolbarProps) {
   return (
@@ -153,14 +151,6 @@ export default function Toolbar({
         </div>
       </div>
 
-      <div className="toolbar-section">
-        <button
-          className="action-button reset-button"
-          onClick={onReset}
-        >
-          Reset
-        </button>
-      </div>
     </div>
   );
 }
